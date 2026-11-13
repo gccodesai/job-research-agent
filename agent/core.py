@@ -11,8 +11,12 @@ free-tier rate limits).
 from dataclasses import dataclass, field
 from typing import Callable
 
+from .llm import run_with_deadline
 from .prompts import FORCE_FINISH_PROMPT, SYSTEM_PROMPT, build_user_message
 from .tools import TOOL_SCHEMAS, execute_tool
+
+
+LLM_DEADLINE_SECONDS = 75
 
 
 @dataclass
@@ -53,8 +57,11 @@ def run_agent(
 
     for turn in range(1, max_steps + 1):
         status(f"Thinking (turn {turn} of {max_steps})…")
-        response = client.chat.completions.create(
-            model=model, messages=messages, tools=TOOL_SCHEMAS
+        response = run_with_deadline(
+            lambda: client.chat.completions.create(
+                model=model, messages=messages, tools=TOOL_SCHEMAS
+            ),
+            LLM_DEADLINE_SECONDS,
         )
         message = response.choices[0].message
 
@@ -97,7 +104,10 @@ def run_agent(
     # Out of steps: ask for the report with no tools available.
     status("Step limit reached, writing the report…")
     messages.append({"role": "user", "content": FORCE_FINISH_PROMPT})
-    response = client.chat.completions.create(model=model, messages=messages)
+    response = run_with_deadline(
+        lambda: client.chat.completions.create(model=model, messages=messages),
+        LLM_DEADLINE_SECONDS,
+    )
     return AgentResult(
         report=response.choices[0].message.content or "",
         steps=steps,

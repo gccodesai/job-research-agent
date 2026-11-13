@@ -8,7 +8,7 @@ from openai import APITimeoutError, NotFoundError, RateLimitError
 
 import time
 
-from agent import PROVIDERS, make_client, model_for, run_agent, test_connection
+from agent import PROVIDERS, make_client, model_for, run_agent, diagnose
 
 load_dotenv()
 
@@ -58,13 +58,12 @@ with st.sidebar:
         if not api_key:
             st.error("Add an API key first.")
         else:
-            with st.spinner(f"Asking {provider.name}…"):
+            with st.spinner(f"Checking {provider.name} (up to 45 seconds)…"):
                 started = time.time()
-                try:
-                    answer = test_connection(make_client(provider_id, api_key), model)
-                    st.success(f"Connected in {time.time() - started:.1f}s. Reply: {answer}")
-                except Exception as e:
-                    st.error(f"{type(e).__name__}: {e}")
+                results = diagnose(provider_id, api_key, model)
+            for passed, message in results:
+                (st.success if passed else st.error)(message)
+            st.caption(f"Finished in {time.time() - started:.1f}s")
     max_steps = st.slider("Max research steps", 3, 12, 6)
     st.caption(
         "⚠️ Free tiers may use your inputs for training. Remove your phone "
@@ -130,7 +129,7 @@ if st.button("Research this job", type="primary", use_container_width=True):
                 "Wait a minute and try again, or lower 'Max research steps' in the sidebar."
             )
             st.stop()
-        except APITimeoutError:
+        except (APITimeoutError, TimeoutError):
             status.update(label="The LLM took too long", state="error")
             st.error(
                 f"{provider.name} didn't respond within 60 seconds. Use 'Test connection' "
