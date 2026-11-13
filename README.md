@@ -5,7 +5,7 @@ your resume, and it **decides on its own** what to research: it reads the postin
 searches the web for company news and strategy, compares the role against your
 experience, and writes an interview prep report.
 
-**Live demo:** [job-research-agent.streamlit.app](https://job-research-agent-8esy922xxei268vy5ga4wn.streamlit.app/) · **Cost to run:** $0
+**Live demo:** [Try it live](https://job-research-agent-8esy922xxei268vy5ga4wn.streamlit.app/) · **Cost to run:** $0
 
 ![screenshot](docs/screenshot.png) <!-- add a screenshot after deploying -->
 
