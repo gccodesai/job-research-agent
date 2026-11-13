@@ -39,7 +39,7 @@ PROVIDERS = {
         models_url="https://generativelanguage.googleapis.com/v1beta/models",
         auth_header="x-goog-api-key",
         # Tried in order if the main model is busy (503) or retired (404).
-        backup_models=("gemini-3.5-flash-lite", "gemini-3.8-flash", "gemini-flash-latest"),
+        backup_models=("gemini-3.5-flash-lite",),
     ),
     "groq": Provider(
         name="Groq",
