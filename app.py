@@ -4,7 +4,7 @@ import os
 
 import streamlit as st
 from dotenv import load_dotenv
-from openai import NotFoundError
+from openai import APITimeoutError, NotFoundError, RateLimitError
 
 from agent import PROVIDERS, make_client, model_for, run_agent
 
@@ -89,6 +89,10 @@ if st.button("Research this job", type="primary", use_container_width=True):
     client = make_client(provider_id, api_key)
     with st.status("Agent is researching…", expanded=True) as status:
 
+        def show_status(text):
+            st.write(f"⏳ {text}")
+            status.update(label=text)
+
         def show_step(step):
             icon = "🌐" if step.tool == "web_search" else "📄"
             st.write(f"{icon} **{step.tool}** `{step.arguments}`")
@@ -96,7 +100,7 @@ if st.button("Research this job", type="primary", use_container_width=True):
         try:
             result = run_agent(
                 job_posting, resume, client, model,
-                max_steps=max_steps, on_step=show_step,
+                max_steps=max_steps, on_step=show_step, on_status=show_status,
             )
         except NotFoundError:
             status.update(label="Model not found", state="error")
@@ -105,6 +109,17 @@ if st.button("Research this job", type="primary", use_container_width=True):
                 f"been retired. Change the Model box in the sidebar to a current model "
                 f"name from the provider's docs and try again."
             )
+            st.stop()
+        except RateLimitError:
+            status.update(label="Rate limit reached", state="error")
+            st.error(
+                f"{provider.name}'s free tier allows only a few requests per minute. "
+                "Wait a minute and try again, or lower 'Max research steps' in the sidebar."
+            )
+            st.stop()
+        except APITimeoutError:
+            status.update(label="The LLM took too long", state="error")
+            st.error(f"{provider.name} didn't respond within 90 seconds. Please try again.")
             st.stop()
         except Exception as e:
             status.update(label="Something went wrong", state="error")

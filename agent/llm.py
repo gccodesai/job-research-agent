@@ -47,7 +47,8 @@ def make_client(provider_id: str, api_key: str | None = None) -> OpenAI:
             f"No API key found for {provider.name}. Set {provider.key_env_var} "
             f"in your .env file (get a free key at {provider.signup_url})."
         )
-    return OpenAI(base_url=provider.base_url, api_key=key)
+    # Give up on a single LLM call after 90s instead of waiting up to 10 minutes.
+    return OpenAI(base_url=provider.base_url, api_key=key, timeout=90, max_retries=2)
 
 
 def model_for(provider_id: str) -> str:

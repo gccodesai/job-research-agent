@@ -38,6 +38,7 @@ def run_agent(
     model: str,
     max_steps: int = 8,
     on_step: Callable[[Step], None] | None = None,
+    on_status: Callable[[str], None] | None = None,
 ) -> AgentResult:
     """Research a job posting against a resume and return a prep report."""
     messages = [
@@ -46,7 +47,12 @@ def run_agent(
     ]
     steps: list[Step] = []
 
-    for _ in range(max_steps):
+    def status(text: str) -> None:
+        if on_status:
+            on_status(text)
+
+    for turn in range(1, max_steps + 1):
+        status(f"Thinking (turn {turn} of {max_steps})…")
         response = client.chat.completions.create(
             model=model, messages=messages, tools=TOOL_SCHEMAS
         )
@@ -54,6 +60,7 @@ def run_agent(
 
         # No tool calls means the LLM has written its final answer.
         if not message.tool_calls:
+            status("Report written.")
             return AgentResult(report=message.content or "", steps=steps)
 
         # Record the LLM's request so it remembers what it asked for.
@@ -77,6 +84,7 @@ def run_agent(
 
         # Run each requested tool and send the result back.
         for tc in message.tool_calls:
+            status(f"Running {tc.function.name}…")
             result = execute_tool(tc.function.name, tc.function.arguments)
             messages.append(
                 {"role": "tool", "tool_call_id": tc.id, "content": result}
@@ -87,6 +95,7 @@ def run_agent(
                 on_step(step)
 
     # Out of steps: ask for the report with no tools available.
+    status("Step limit reached, writing the report…")
     messages.append({"role": "user", "content": FORCE_FINISH_PROMPT})
     response = client.chat.completions.create(model=model, messages=messages)
     return AgentResult(

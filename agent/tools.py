@@ -9,22 +9,33 @@ instead, so the agent can read it and try something else.
 """
 
 import json
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeout
 
 import requests
 from bs4 import BeautifulSoup
 
+SEARCH_TIMEOUT_SECONDS = 20
 MAX_PAGE_CHARS = 6000  # keep pages short so we stay within free-tier limits
 HEADERS = {"User-Agent": "Mozilla/5.0 (job-research-agent; portfolio project)"}
 
 
 def web_search(query: str, max_results: int = 5) -> str:
     """Search the web with DuckDuckGo (free, no API key needed)."""
-    try:
-        from ddgs import DDGS
+    from ddgs import DDGS
 
-        results = DDGS().text(query, max_results=max_results)
+    # Run the search in a background thread so a slow or blocked search
+    # can never freeze the agent: after the time limit we give up on it.
+    pool = ThreadPoolExecutor(max_workers=1)
+    future = pool.submit(lambda: DDGS().text(query, max_results=max_results))
+    try:
+        results = future.result(timeout=SEARCH_TIMEOUT_SECONDS)
+    except FutureTimeout:
+        return "Search timed out. Try a different query, or continue with what you have."
     except Exception as e:  # network problems, rate limits, etc.
         return f"Search failed: {e}"
+    finally:
+        pool.shutdown(wait=False)
     if not results:
         return "No results found."
     lines = [
