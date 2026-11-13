@@ -1,17 +1,20 @@
-"""Connects to a free LLM provider.
+"""Connects to a free LLM provider using plain HTTP requests.
 
 Both Google Gemini and Groq offer free API tiers (no credit card) and both
-speak the OpenAI API format, so one client library works for either.
-Switching providers = changing a base URL, an API key, and a model name.
+accept requests in the "OpenAI chat completions" format. Instead of using an
+SDK, we send that request ourselves with `requests`. It's only a few lines,
+nothing is hidden, and timeouts behave predictably.
 """
 
+import json
 import os
+import time
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeout
 from dataclasses import dataclass
+from types import SimpleNamespace
 
 import requests
-from openai import OpenAI
 
 
 @dataclass
@@ -22,18 +25,20 @@ class Provider:
     default_model: str
     signup_url: str
     models_url: str
-    auth_header: str  # header name used to send the key when listing models
+    auth_header: str  # header used to send the key when listing models
+    backup_models: tuple[str, ...] = ()  # also tried by the connection test
 
 
 PROVIDERS = {
     "gemini": Provider(
         name="Google Gemini",
-        base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+        base_url="https://generativelanguage.googleapis.com/v1beta/openai",
         key_env_var="GEMINI_API_KEY",
-        default_model="gemini-flash-latest",  # alias: always the current Flash model
+        default_model="gemini-2.5-flash",
         signup_url="https://aistudio.google.com/apikey",
         models_url="https://generativelanguage.googleapis.com/v1beta/models",
         auth_header="x-goog-api-key",
+        backup_models=("gemini-flash-latest", "gemini-2.5-flash-lite"),
     ),
     "groq": Provider(
         name="Groq",
@@ -43,12 +48,71 @@ PROVIDERS = {
         signup_url="https://console.groq.com/keys",
         models_url="https://api.groq.com/openai/v1/models",
         auth_header="Authorization",
+        backup_models=("llama-3.3-70b-versatile",),
     ),
 }
 
 
-def make_client(provider_id: str, api_key: str | None = None) -> OpenAI:
-    """Return an OpenAI-compatible client pointed at the chosen provider."""
+class LLMError(Exception):
+    """The provider answered with an error (bad key, unknown model, rate limit...)."""
+
+    def __init__(self, status: int, detail: str):
+        self.status = status
+        super().__init__(f"HTTP {status}: {detail}")
+
+
+class ChatClient:
+    """A tiny chat-completions client.
+
+    It mimics the shape of the OpenAI SDK (client.chat.completions.create)
+    so the agent code reads the same as most tutorials.
+    """
+
+    def __init__(self, base_url: str, api_key: str, timeout: float = 60):
+        self.url = base_url.rstrip("/") + "/chat/completions"
+        self.headers = {"Authorization": f"Bearer {api_key}"}
+        self.timeout = timeout
+        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self.create))
+
+    def create(self, model: str, messages: list, tools: list | None = None):
+        payload = {"model": model, "messages": messages}
+        if tools:
+            payload["tools"] = tools
+        try:
+            resp = requests.post(
+                self.url, headers=self.headers, json=payload,
+                timeout=(10, self.timeout),  # (connect, read) in seconds
+            )
+        except requests.Timeout:
+            raise TimeoutError(f"No response after {self.timeout:.0f} seconds") from None
+        if resp.status_code != 200:
+            raise LLMError(resp.status_code, resp.text[:500])
+        return _parse_reply(resp.json())
+
+
+def _parse_reply(data: dict) -> SimpleNamespace:
+    """Turn the JSON reply into objects: reply.choices[0].message.content etc."""
+    msg = data["choices"][0]["message"]
+    tool_calls = []
+    for i, tc in enumerate(msg.get("tool_calls") or []):
+        args = tc["function"].get("arguments") or "{}"
+        if not isinstance(args, str):
+            args = json.dumps(args)
+        tool_calls.append(
+            SimpleNamespace(
+                id=tc.get("id") or f"call_{i}",
+                function=SimpleNamespace(name=tc["function"]["name"], arguments=args),
+                # Keep the original so we can send it back unchanged. Newer
+                # Gemini models attach a "thought signature" they need to see again.
+                raw=tc,
+            )
+        )
+    message = SimpleNamespace(content=msg.get("content"), tool_calls=tool_calls or None)
+    return SimpleNamespace(choices=[SimpleNamespace(message=message)])
+
+
+def make_client(provider_id: str, api_key: str | None = None) -> ChatClient:
+    """Return a chat client pointed at the chosen provider."""
     provider = PROVIDERS[provider_id]
     key = api_key or os.getenv(provider.key_env_var)
     if not key:
@@ -56,8 +120,12 @@ def make_client(provider_id: str, api_key: str | None = None) -> OpenAI:
             f"No API key found for {provider.name}. Set {provider.key_env_var} "
             f"in your .env file (get a free key at {provider.signup_url})."
         )
-    # Fail fast with a visible error instead of waiting (and retrying) silently.
-    return OpenAI(base_url=provider.base_url, api_key=key, timeout=60, max_retries=0)
+    return ChatClient(provider.base_url, key)
+
+
+def model_for(provider_id: str) -> str:
+    """Model name, overridable with the MODEL environment variable."""
+    return os.getenv("MODEL") or PROVIDERS[provider_id].default_model
 
 
 def run_with_deadline(fn, seconds: float):
@@ -73,14 +141,14 @@ def run_with_deadline(fn, seconds: float):
 
 
 def diagnose(provider_id: str, api_key: str, model: str) -> list[tuple[bool, str]]:
-    """Check network + key, then the model, one step at a time.
+    """Check network + key, then try a few models side by side.
 
     Returns a list of (passed, message) lines to show the user.
     """
     provider = PROVIDERS[provider_id]
     lines: list[tuple[bool, str]] = []
 
-    # Step 1: plain HTTP request listing models (no AI call, no OpenAI library).
+    # Step 1: list models (checks the network and the key, no AI call).
     value = f"Bearer {api_key}" if provider.auth_header == "Authorization" else api_key
     try:
         resp = requests.get(
@@ -90,36 +158,35 @@ def diagnose(provider_id: str, api_key: str, model: str) -> list[tuple[bool, str
         lines.append((False, f"Could not reach {provider.name}: {type(e).__name__}"))
         return lines
     if resp.status_code != 200:
-        lines.append((False, f"{provider.name} rejected the key (HTTP {resp.status_code}): "
-                             f"{resp.text[:300]}"))
+        lines.append((False, f"{provider.name} rejected the key "
+                             f"(HTTP {resp.status_code}): {resp.text[:300]}"))
         return lines
     data = resp.json()
-    names = [m.get("name", m.get("id", "")).removeprefix("models/")
-             for m in data.get("models", data.get("data", []))]
-    lines.append((True, f"Reached {provider.name} and the key works ({len(names)} models)."))
-    if provider_id == "gemini":
-        flash = [n for n in names if "flash" in n]
-        lines.append((True, "Flash models on your key: " + ", ".join(flash[:15])))
-    if model not in names and not model.endswith("-latest"):
-        lines.append((False, f"'{model}' is not in your model list. Pick one listed above."))
+    count = len(data.get("models", data.get("data", [])))
+    lines.append((True, f"Reached {provider.name} and the key works ({count} models)."))
 
-    # Step 2: a tiny chat request through the OpenAI-compatible endpoint.
-    client = make_client(provider_id, api_key)
-    try:
-        reply = run_with_deadline(
-            lambda: client.chat.completions.create(
-                model=model,
+    # Step 2: ask each candidate model to say OK, all at the same time.
+    candidates = list(dict.fromkeys([model, *provider.backup_models]))
+    client = ChatClient(provider.base_url, api_key, timeout=30)
+
+    def try_model(name: str) -> tuple[bool, str]:
+        started = time.time()
+        try:
+            reply = client.create(
+                model=name,
                 messages=[{"role": "user", "content": "Reply with just the word: OK"}],
-            ),
-            30,
-        )
-        text = reply.choices[0].message.content or "(empty reply)"
-        lines.append((True, f"Model '{model}' answered: {text.strip()[:50]}"))
-    except Exception as e:
-        lines.append((False, f"Model '{model}' failed: {type(e).__name__}: {str(e)[:300]}"))
+            )
+            text = (reply.choices[0].message.content or "").strip()[:30]
+            return True, f"'{name}' works ({time.time() - started:.1f}s): {text}"
+        except Exception as e:
+            return False, f"'{name}' failed: {type(e).__name__}: {str(e)[:250]}"
+
+    pool = ThreadPoolExecutor(max_workers=len(candidates))
+    futures = [pool.submit(try_model, name) for name in candidates]
+    for name, future in zip(candidates, futures):
+        try:
+            lines.append(future.result(timeout=40))
+        except FutureTimeout:
+            lines.append((False, f"'{name}' failed: no response after 40 seconds"))
+    pool.shutdown(wait=False)
     return lines
-
-
-def model_for(provider_id: str) -> str:
-    """Model name, overridable with the MODEL environment variable."""
-    return os.getenv("MODEL") or PROVIDERS[provider_id].default_model

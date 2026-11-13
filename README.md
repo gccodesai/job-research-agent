@@ -43,8 +43,11 @@ This is a **tool-calling agent loop**, written by hand in about 60 lines
 4. A step limit prevents runaway loops and protects free-tier rate limits.
 
 **Design choices**
-- **Provider-agnostic:** works with Google Gemini or Groq through their
-  OpenAI-compatible APIs. Switching is a config change.
+- **Provider-agnostic, no SDK:** talks to Google Gemini or Groq through their
+  OpenAI-compatible endpoints with a ~40-line HTTP client
+  ([`agent/llm.py`](agent/llm.py)). Switching is a config change.
+- **Never hangs:** every LLM call and search has a hard deadline, and a
+  built-in connection test checks the key and compares models side by side.
 - **Grounded output:** the prompt requires a source URL for every company fact
   and honest gap analysis. No invented experience.
 - **Resilient tools:** tools return errors as text instead of crashing, so the agent
@@ -53,7 +56,7 @@ This is a **tool-calling agent loop**, written by hand in about 60 lines
 
 ## Tech stack
 
-Python · OpenAI SDK (against Gemini/Groq) · Streamlit · DuckDuckGo Search ·
+Python · Gemini/Groq via raw HTTP (`requests`) · Streamlit · DuckDuckGo Search ·
 BeautifulSoup · pytest
 
 ## Run it locally
@@ -110,7 +113,7 @@ agent/
   core.py      # the agent loop
   tools.py     # web_search, fetch_webpage + their schemas
   prompts.py   # system prompt and report format
-  llm.py       # Gemini / Groq connection
+  llm.py       # Gemini / Groq HTTP client + connection test
 app.py         # Streamlit web interface
 cli.py         # command-line interface
 tests/         # unit tests with a fake LLM

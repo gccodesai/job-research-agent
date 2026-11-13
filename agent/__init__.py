@@ -1,7 +1,7 @@
 from .core import AgentResult, Step, run_agent
-from .llm import PROVIDERS, make_client, model_for, diagnose, run_with_deadline
+from .llm import LLMError, PROVIDERS, diagnose, make_client, model_for
 
 __all__ = [
-    "AgentResult", "Step", "run_agent", "PROVIDERS", "make_client", "model_for",
-    "diagnose", "run_with_deadline",
+    "AgentResult", "Step", "run_agent", "LLMError", "PROVIDERS", "diagnose",
+    "make_client", "model_for",
 ]

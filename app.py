@@ -4,11 +4,10 @@ import os
 
 import streamlit as st
 from dotenv import load_dotenv
-from openai import APITimeoutError, NotFoundError, RateLimitError
 
 import time
 
-from agent import PROVIDERS, make_client, model_for, run_agent, diagnose
+from agent import PROVIDERS, LLMError, diagnose, make_client, model_for, run_agent
 
 load_dotenv()
 
@@ -52,7 +51,7 @@ with st.sidebar:
     model = st.text_input(
         "Model",
         value=model_for(provider_id),
-        help="Change this if the provider retires a model (you'll see a 404 error).",
+        help="Use 'Test connection' to see which models respond on your key.",
     )
     if st.button("Test connection"):
         if not api_key:
@@ -114,26 +113,26 @@ if st.button("Research this job", type="primary", use_container_width=True):
                 job_posting, resume, client, model,
                 max_steps=max_steps, on_step=show_step, on_status=show_status,
             )
-        except NotFoundError:
-            status.update(label="Model not found", state="error")
-            st.error(
-                f"{provider.name} doesn't recognise the model '{model}'. It may have "
-                f"been retired. Change the Model box in the sidebar to a current model "
-                f"name from the provider's docs and try again."
-            )
+        except LLMError as e:
+            status.update(label="The LLM returned an error", state="error")
+            if e.status == 429:
+                st.error(
+                    f"{provider.name}'s free tier allows only a few requests per minute. "
+                    "Wait a minute and try again, or lower 'Max research steps'."
+                )
+            elif e.status == 404:
+                st.error(
+                    f"{provider.name} doesn't recognise the model '{model}'. Use "
+                    "'Test connection' in the sidebar to find one that works."
+                )
+            else:
+                st.error(str(e))
             st.stop()
-        except RateLimitError:
-            status.update(label="Rate limit reached", state="error")
-            st.error(
-                f"{provider.name}'s free tier allows only a few requests per minute. "
-                "Wait a minute and try again, or lower 'Max research steps' in the sidebar."
-            )
-            st.stop()
-        except (APITimeoutError, TimeoutError):
+        except TimeoutError:
             status.update(label="The LLM took too long", state="error")
             st.error(
-                f"{provider.name} didn't respond within 60 seconds. Use 'Test connection' "
-                "in the sidebar to check your key and model, or switch provider."
+                f"{provider.name} didn't respond in time. Use 'Test connection' in the "
+                "sidebar to find a model that responds, or switch provider."
             )
             st.stop()
         except Exception as e:

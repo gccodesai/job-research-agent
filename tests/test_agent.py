@@ -75,3 +75,19 @@ def test_bad_tool_requests_return_errors_not_crashes():
 def test_url_vs_pasted_posting():
     assert "read it first" in build_user_message("https://jobs.example.com/1", "cv")
     assert "<job_posting>" in build_user_message("Director, PMO\nAcme Corp", "cv")
+
+
+def test_reply_parsing_keeps_original_tool_call_for_gemini():
+    from agent.llm import _parse_reply
+
+    raw_call = {
+        "id": "abc", "type": "function",
+        "function": {"name": "web_search", "arguments": '{"query": "x"}'},
+        "extra_content": {"google": {"thought_signature": "sig"}},
+    }
+    reply = _parse_reply({"choices": [{"message": {"content": None, "tool_calls": [raw_call]}}]})
+    tc = reply.choices[0].message.tool_calls[0]
+    assert tc.function.name == "web_search"
+
+    from agent.core import _tool_call_dict
+    assert _tool_call_dict(tc) == raw_call  # thought signature is echoed back

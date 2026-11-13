@@ -75,17 +75,7 @@ def run_agent(
             {
                 "role": "assistant",
                 "content": message.content or "",
-                "tool_calls": [
-                    {
-                        "id": tc.id,
-                        "type": "function",
-                        "function": {
-                            "name": tc.function.name,
-                            "arguments": tc.function.arguments,
-                        },
-                    }
-                    for tc in message.tool_calls
-                ],
+                "tool_calls": [_tool_call_dict(tc) for tc in message.tool_calls],
             }
         )
 
@@ -113,3 +103,19 @@ def run_agent(
         steps=steps,
         hit_step_limit=True,
     )
+
+
+def _tool_call_dict(tc) -> dict:
+    """The tool call exactly as the provider sent it, to echo back.
+
+    Sending the original back matters: newer Gemini models attach extra data
+    (a "thought signature") and reject the next request if it's missing.
+    """
+    raw = getattr(tc, "raw", None)
+    if raw:
+        return raw
+    return {
+        "id": tc.id,
+        "type": "function",
+        "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+    }
