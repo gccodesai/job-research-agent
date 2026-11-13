@@ -143,6 +143,8 @@ if st.button("Research this job", type="primary", use_container_width=True):
             label=f"Done: {len(result.steps)} research steps", state="complete", expanded=False
         )
 
+    if client.last_model and client.last_model != model:
+        st.info(f"'{model}' was busy, so the agent used '{client.last_model}' instead.")
     if result.hit_step_limit:
         st.info("The agent hit the step limit, so the report uses what it found so far.")
     st.markdown(result.report)

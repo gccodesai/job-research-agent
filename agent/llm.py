@@ -34,11 +34,12 @@ PROVIDERS = {
         name="Google Gemini",
         base_url="https://generativelanguage.googleapis.com/v1beta/openai",
         key_env_var="GEMINI_API_KEY",
-        default_model="gemini-2.5-flash",
+        default_model="gemini-3.5-flash",
         signup_url="https://aistudio.google.com/apikey",
         models_url="https://generativelanguage.googleapis.com/v1beta/models",
         auth_header="x-goog-api-key",
-        backup_models=("gemini-flash-latest", "gemini-2.5-flash-lite"),
+        # Tried in order if the main model is busy (503) or retired (404).
+        backup_models=("gemini-3.5-flash-lite", "gemini-3.8-flash", "gemini-flash-latest"),
     ),
     "groq": Provider(
         name="Groq",
@@ -68,13 +69,50 @@ class ChatClient:
     so the agent code reads the same as most tutorials.
     """
 
-    def __init__(self, base_url: str, api_key: str, timeout: float = 60):
+    RETRY_STATUSES = {429, 500, 503}  # rate limited or temporarily overloaded
+    SKIP_STATUSES = {404, 503}  # model retired or still busy: try the next one
+
+    def __init__(
+        self,
+        base_url: str,
+        api_key: str,
+        timeout: float = 60,
+        fallback_models: tuple[str, ...] = (),
+        retries: int = 2,
+    ):
         self.url = base_url.rstrip("/") + "/chat/completions"
         self.headers = {"Authorization": f"Bearer {api_key}"}
         self.timeout = timeout
+        self.fallback_models = fallback_models
+        self.retries = retries
+        self.last_model: str | None = None  # which model actually answered
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self.create))
 
     def create(self, model: str, messages: list, tools: list | None = None):
+        """Ask `model`; if it is busy or retired, fall back to the backups."""
+        models = list(dict.fromkeys([model, *self.fallback_models]))
+        error = None
+        for name in models:
+            try:
+                reply = self._create_with_retries(name, messages, tools)
+                self.last_model = name
+                return reply
+            except LLMError as e:
+                if e.status not in self.SKIP_STATUSES:
+                    raise
+                error = e
+        raise error
+
+    def _create_with_retries(self, model: str, messages: list, tools: list | None):
+        for attempt in range(self.retries + 1):
+            try:
+                return self._create_once(model, messages, tools)
+            except LLMError as e:
+                if e.status not in self.RETRY_STATUSES or attempt == self.retries:
+                    raise
+                time.sleep(2 * (attempt + 1))  # wait 2s, then 4s
+
+    def _create_once(self, model: str, messages: list, tools: list | None):
         payload = {"model": model, "messages": messages}
         if tools:
             payload["tools"] = tools
@@ -120,7 +158,7 @@ def make_client(provider_id: str, api_key: str | None = None) -> ChatClient:
             f"No API key found for {provider.name}. Set {provider.key_env_var} "
             f"in your .env file (get a free key at {provider.signup_url})."
         )
-    return ChatClient(provider.base_url, key)
+    return ChatClient(provider.base_url, key, fallback_models=provider.backup_models)
 
 
 def model_for(provider_id: str) -> str:
@@ -167,7 +205,8 @@ def diagnose(provider_id: str, api_key: str, model: str) -> list[tuple[bool, str
 
     # Step 2: ask each candidate model to say OK, all at the same time.
     candidates = list(dict.fromkeys([model, *provider.backup_models]))
-    client = ChatClient(provider.base_url, api_key, timeout=30)
+    # No retries or fallbacks here: we want to see how each model does on its own.
+    client = ChatClient(provider.base_url, api_key, timeout=30, retries=0)
 
     def try_model(name: str) -> tuple[bool, str]:
         started = time.time()

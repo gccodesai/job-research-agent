@@ -91,3 +91,25 @@ def test_reply_parsing_keeps_original_tool_call_for_gemini():
 
     from agent.core import _tool_call_dict
     assert _tool_call_dict(tc) == raw_call  # thought signature is echoed back
+
+
+def test_client_falls_back_when_model_busy_or_retired(monkeypatch):
+    from agent.llm import ChatClient
+
+    asked = []
+
+    def fake_post(url, headers, json, timeout):
+        asked.append(json["model"])
+        status = {"old-model": 404, "busy-model": 503}.get(json["model"], 200)
+        body = {"choices": [{"message": {"content": "hi"}}]}
+        return SimpleNamespace(status_code=status, text="err", json=lambda: body)
+
+    monkeypatch.setattr("agent.llm.requests.post", fake_post)
+    monkeypatch.setattr("agent.llm.time.sleep", lambda s: None)
+    client = ChatClient("http://x", "k", fallback_models=("busy-model", "good-model"))
+
+    reply = client.create("old-model", [{"role": "user", "content": "hi"}])
+
+    assert reply.choices[0].message.content == "hi"
+    assert client.last_model == "good-model"
+    assert asked == ["old-model", "busy-model", "busy-model", "busy-model", "good-model"]
