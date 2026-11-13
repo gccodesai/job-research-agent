@@ -4,6 +4,7 @@ import os
 
 import streamlit as st
 from dotenv import load_dotenv
+from openai import NotFoundError
 
 from agent import PROVIDERS, make_client, model_for, run_agent
 
@@ -46,6 +47,11 @@ with st.sidebar:
         placeholder="Using saved key" if saved_key else "Paste your key",
         help=f"Free key, no credit card: {provider.signup_url}",
     ) or saved_key
+    model = st.text_input(
+        "Model",
+        value=model_for(provider_id),
+        help="Change this if the provider retires a model (you'll see a 404 error).",
+    )
     max_steps = st.slider("Max research steps", 3, 12, 8)
     st.caption(
         "⚠️ Free tiers may use your inputs for training. Remove your phone "
@@ -89,9 +95,17 @@ if st.button("Research this job", type="primary", use_container_width=True):
 
         try:
             result = run_agent(
-                job_posting, resume, client, model_for(provider_id),
+                job_posting, resume, client, model,
                 max_steps=max_steps, on_step=show_step,
             )
+        except NotFoundError:
+            status.update(label="Model not found", state="error")
+            st.error(
+                f"{provider.name} doesn't recognise the model '{model}'. It may have "
+                f"been retired. Change the Model box in the sidebar to a current model "
+                f"name from the provider's docs and try again."
+            )
+            st.stop()
         except Exception as e:
             status.update(label="Something went wrong", state="error")
             st.error(f"{type(e).__name__}: {e}")

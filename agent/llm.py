@@ -25,7 +25,7 @@ PROVIDERS = {
         name="Google Gemini",
         base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
         key_env_var="GEMINI_API_KEY",
-        default_model="gemini-2.5-flash",
+        default_model="gemini-flash-latest",  # alias: always the current Flash model
         signup_url="https://aistudio.google.com/apikey",
     ),
     "groq": Provider(
