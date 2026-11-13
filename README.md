@@ -5,7 +5,7 @@ your resume, and it **decides on its own** what to research: it reads the postin
 searches the web for company news and strategy, compares the role against your
 experience, and writes an interview prep report.
 
-**Live demo:** _add your Streamlit Cloud link here_ · **Cost to run:** $0
+**Live demo:** [job-research-agent.streamlit.app](https://job-research-agent-8esy922xxei268vy5ga4wn.streamlit.app/) · **Cost to run:** $0
 
 ![screenshot](docs/screenshot.png) <!-- add a screenshot after deploying -->
 
@@ -119,7 +119,7 @@ sample_data/   # fictional job posting and resume
 
 ## Roadmap
 
-- [ ] Deploy to Streamlit Community Cloud
+- [x] Deploy to Streamlit Community Cloud
 - [ ] Compare several postings side by side and rank by fit
 - [ ] Draft a tailored cover letter from the report
 - [ ] Save past reports and track applications
