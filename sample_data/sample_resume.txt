@@ -1,0 +1,24 @@
+ALEX SAMPLE (fictional resume for testing)
+
+SUMMARY
+Program leader with 14 years of experience running PMOs and enterprise
+transformation programs in retail and supply chain.
+
+EXPERIENCE
+Senior Manager, Enterprise PMO — Contoso Retail (2019–present)
+- Built an enterprise PMO from scratch covering 22 programs and $65M annual spend
+- Introduced benefits tracking that verified $18M in cost savings over two years
+- Ran monthly portfolio reviews with the C-suite
+- Led a team of 8 program and project managers
+
+Program Manager — Fabrikam Supply Chain (2013–2019)
+- Delivered a $12M warehouse management system rollout across 9 sites
+- Moved 4 delivery teams from waterfall to Scrum
+
+EDUCATION & CERTIFICATIONS
+MBA, Operations Management
+PMP; SAFe Agilist (SA)
+
+SKILLS
+Portfolio governance, benefits realization, executive reporting, Jira, Smartsheet,
+Power BI, change management. Currently learning Python and LLM application development.

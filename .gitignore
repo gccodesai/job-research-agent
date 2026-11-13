@@ -1,0 +1,14 @@
+# Secrets: never commit these
+.env
+.streamlit/secrets.toml
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+
+# Generated reports (may contain your resume details)
+report.md
+*_report.md
