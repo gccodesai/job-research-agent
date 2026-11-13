@@ -6,7 +6,9 @@ import streamlit as st
 from dotenv import load_dotenv
 from openai import APITimeoutError, NotFoundError, RateLimitError
 
-from agent import PROVIDERS, make_client, model_for, run_agent
+import time
+
+from agent import PROVIDERS, make_client, model_for, run_agent, test_connection
 
 load_dotenv()
 
@@ -52,7 +54,18 @@ with st.sidebar:
         value=model_for(provider_id),
         help="Change this if the provider retires a model (you'll see a 404 error).",
     )
-    max_steps = st.slider("Max research steps", 3, 12, 8)
+    if st.button("Test connection"):
+        if not api_key:
+            st.error("Add an API key first.")
+        else:
+            with st.spinner(f"Asking {provider.name}…"):
+                started = time.time()
+                try:
+                    answer = test_connection(make_client(provider_id, api_key), model)
+                    st.success(f"Connected in {time.time() - started:.1f}s. Reply: {answer}")
+                except Exception as e:
+                    st.error(f"{type(e).__name__}: {e}")
+    max_steps = st.slider("Max research steps", 3, 12, 6)
     st.caption(
         "⚠️ Free tiers may use your inputs for training. Remove your phone "
         "number and address from your resume before pasting it."
@@ -119,7 +132,10 @@ if st.button("Research this job", type="primary", use_container_width=True):
             st.stop()
         except APITimeoutError:
             status.update(label="The LLM took too long", state="error")
-            st.error(f"{provider.name} didn't respond within 90 seconds. Please try again.")
+            st.error(
+                f"{provider.name} didn't respond within 60 seconds. Use 'Test connection' "
+                "in the sidebar to check your key and model, or switch provider."
+            )
             st.stop()
         except Exception as e:
             status.update(label="Something went wrong", state="error")

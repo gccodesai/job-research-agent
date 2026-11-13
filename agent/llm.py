@@ -47,8 +47,18 @@ def make_client(provider_id: str, api_key: str | None = None) -> OpenAI:
             f"No API key found for {provider.name}. Set {provider.key_env_var} "
             f"in your .env file (get a free key at {provider.signup_url})."
         )
-    # Give up on a single LLM call after 90s instead of waiting up to 10 minutes.
-    return OpenAI(base_url=provider.base_url, api_key=key, timeout=90, max_retries=2)
+    # Fail fast with a visible error instead of waiting (and retrying) silently.
+    return OpenAI(base_url=provider.base_url, api_key=key, timeout=60, max_retries=0)
+
+
+def test_connection(client: OpenAI, model: str) -> str:
+    """Send a tiny request to check the key and model work. Returns the reply."""
+    response = client.chat.completions.create(
+        model=model,
+        messages=[{"role": "user", "content": "Reply with just the word: OK"}],
+        timeout=30,
+    )
+    return response.choices[0].message.content or "(empty reply)"
 
 
 def model_for(provider_id: str) -> str:
