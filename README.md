@@ -130,8 +130,27 @@ sample_data/   # fictional job posting and resume
 
 ## What I learned
 
-_Write 3–5 bullets here as you build: what was hard, what surprised you, what
-you'd change. Hiring managers read this section._
+- **An agent is a loop, not magic.** The core is about 60 lines: ask the model,
+  run whichever tool it requests, feed the result back, and repeat until it writes
+  an answer. Writing it without a framework made LangGraph and CrewAI much easier
+  to understand.
+- **Free tiers move under your feet.** The first deploy failed because the model I
+  hard-coded had been retired for new accounts (404). The next model was overloaded
+  (503). The fix wasn't just a new name. I made the model configurable, added
+  retries with backoff, and set up automatic fallback to a backup model.
+- **Diagnose before you fix.** My first two fixes were guesses. What actually
+  worked was building a "Test connection" check that tests the network, the key and
+  each model separately. One run showed the real cause.
+- **Every external call needs a deadline.** The app once spun forever with no error.
+  Now every LLM call and web search has a hard time limit and reports progress, so a
+  failure is visible and specific.
+- **Fewer dependencies, fewer surprises.** I replaced the OpenAI SDK with a 40-line
+  HTTP client. It's easier to read, easier to test, and its timeouts behave
+  predictably.
+- **Building with an AI pair programmer.** I built this with Claude. My part was
+  scoping, testing on the live app, and reporting precise errors back. That's not
+  far from running a program: clear requirements, fast feedback loops, and
+  root-cause analysis before rework.
 
 ## License
 
